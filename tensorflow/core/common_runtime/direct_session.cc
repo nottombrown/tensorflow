@@ -31,6 +31,7 @@ limitations under the License.
 #include "tensorflow/core/framework/function.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/graph_def_util.h"
+#include "tensorflow/core/framework/log_memory.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
@@ -91,7 +92,7 @@ string GetRendezvousKey(const string& tensor_name,
 
 }  // namespace
 
-std::atomic_int_fast64_t DirectSession::step_id_counter_(0);
+std::atomic_int_fast64_t DirectSession::step_id_counter_(1);
 
 // NOTE: On Android with a single device, there is never
 // a risk of an OpKernel blocking indefinitely:
@@ -126,7 +127,8 @@ DirectSession::DirectSession(const SessionOptions& options,
                              const DeviceMgr* device_mgr)
     : options_(options),
       device_mgr_(device_mgr),
-      cancellation_manager_(new CancellationManager()) {
+      cancellation_manager_(new CancellationManager()),
+      operation_timeout_in_ms_(options_.config.operation_timeout_in_ms()) {
   if (options_.config.use_per_session_threads()) {
     thread_pool_ = NewThreadPool(options_);
   } else {
@@ -252,16 +254,17 @@ Status DirectSession::Run(const NamedTensorList& inputs,
                           const std::vector<string>& output_names,
                           const std::vector<string>& target_nodes,
                           std::vector<Tensor>* outputs) {
-  return RunWithOpts(kEmptyRunOptions, inputs, output_names, target_nodes,
-                     outputs, &kEmptyRunOutputs);
+  RunOutputs run_outputs;
+  return Run(RunOptions(), inputs, output_names, target_nodes, outputs,
+             &run_outputs);
 }
 
-Status DirectSession::RunWithOpts(const RunOptions& run_options,
-                                  const NamedTensorList& inputs,
-                                  const std::vector<string>& output_names,
-                                  const std::vector<string>& target_nodes,
-                                  std::vector<Tensor>* outputs,
-                                  RunOutputs* run_outputs) {
+Status DirectSession::Run(const RunOptions& run_options,
+                          const NamedTensorList& inputs,
+                          const std::vector<string>& output_names,
+                          const std::vector<string>& target_nodes,
+                          std::vector<Tensor>* outputs,
+                          RunOutputs* run_outputs) {
   {
     mutex_lock l(graph_def_lock_);
     if (!graph_created_) {
@@ -295,7 +298,10 @@ Status DirectSession::RunWithOpts(const RunOptions& run_options,
   const int num_executors = executors_and_keys->items.size();
   ExecutorBarrier* barrier = new ExecutorBarrier(
       num_executors, run_state.rendez, [&run_state](const Status& ret) {
-        run_state.status = ret;
+        {
+          mutex_lock l(run_state.mu_);
+          run_state.status.Update(ret);
+        }
         run_state.executors_done.Notify();
       });
 
@@ -304,8 +310,9 @@ Status DirectSession::RunWithOpts(const RunOptions& run_options,
   args.rendezvous = run_state.rendez;
   args.cancellation_manager = cancellation_manager_;
   args.runner = [this](Executor::Args::Closure c) { SchedClosure(c); };
-  VLOG(1) << "Step " << args.step_id << " is for handle "
-          << run_state_args.handle;
+  if (LogMemory::IsEnabled()) {
+    LogMemory::RecordStep(args.step_id, run_state_args.handle);
+  }
 
   if (run_options.trace_level() == RunOptions::FULL_TRACE) {
     args.stats_collector =
@@ -316,13 +323,18 @@ Status DirectSession::RunWithOpts(const RunOptions& run_options,
     item.executor->RunAsync(args, barrier->Get());
   }
 
-  run_state.executors_done.WaitForNotification();
+  WaitForNotification(&run_state, run_options.timeout_in_ms() > 0
+                                      ? run_options.timeout_in_ms()
+                                      : operation_timeout_in_ms_);
 
   if (run_options.trace_level() == RunOptions::FULL_TRACE) {
     delete args.stats_collector;
   }
 
-  TF_RETURN_IF_ERROR(run_state.status);
+  {
+    mutex_lock l(run_state.mu_);
+    TF_RETURN_IF_ERROR(run_state.status);
+  }
 
   // Receive outputs.
   TF_RETURN_IF_ERROR(
@@ -456,9 +468,12 @@ Status DirectSession::PRun(const string& handle, const NamedTensorList& inputs,
     mutex_lock l(executor_lock_);
     bool done = true;
     if (s.ok()) {
-      if (!run_state->status.ok()) {
-        LOG(WARNING) << "An error unrelated to this prun has been detected. "
-                     << run_state->status;
+      {
+        mutex_lock l(run_state->mu_);
+        if (!run_state->status.ok()) {
+          LOG(WARNING) << "An error unrelated to this prun has been detected. "
+                       << run_state->status;
+        }
       }
       for (const auto& it : inputs) {
         run_state->pending_inputs.erase(it.first);
@@ -469,7 +484,7 @@ Status DirectSession::PRun(const string& handle, const NamedTensorList& inputs,
       done = run_state->pending_outputs.size() == 0;
     }
     if (done) {
-      run_state->executors_done.WaitForNotification();
+      WaitForNotification(run_state, operation_timeout_in_ms_);
       partial_runs_.erase(handle);
       delete run_state;
     }
@@ -894,6 +909,29 @@ Status DirectSession::CreateGraphs(gtl::ArraySlice<string> feeds,
 ::tensorflow::Status DirectSession::Close() {
   cancellation_manager_->StartCancel();
   return ::tensorflow::Status::OK();
+}
+
+void DirectSession::WaitForNotification(RunState* run_state,
+                                        int64 timeout_in_ms) {
+  if (timeout_in_ms > 0) {
+    bool timed_out =
+        run_state->executors_done.WaitForNotificationWithTimeout(timeout_in_ms);
+    if (timed_out) {
+      {
+        mutex_lock l(run_state->mu_);
+        run_state->status.Update(Status(error::DEADLINE_EXCEEDED,
+                                        "Timed out waiting for notification"));
+      }
+      // TODO(sherrym): This cancels all steps in the session, even ones that
+      // have not exceeded their deadline. An alternative would be to use a
+      // two-level cancellation manager with a Session-global one containing
+      // several step-local ones. Probably the RunState should have its own
+      // CancellationManager.
+      cancellation_manager_->StartCancel();
+    }
+  } else {
+    run_state->executors_done.WaitForNotification();
+  }
 }
 
 class DirectSessionFactory : public SessionFactory {

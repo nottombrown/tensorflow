@@ -5,8 +5,6 @@ package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])  # Apache 2.0
 
-exports_files(["LICENSE"])
-
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_cc_test",
@@ -24,15 +22,6 @@ load(
 cc_library(
     name = "assign_op",
     hdrs = ["assign_op.h"],
-    deps = [
-        "//tensorflow/core:framework",
-        "//third_party/eigen3",
-    ],
-)
-
-cc_library(
-    name = "bounds_check",
-    hdrs = ["bounds_check.h"],
     deps = [
         "//tensorflow/core:framework",
         "//third_party/eigen3",
@@ -154,7 +143,6 @@ tf_proto_library(
     cc_api_version = 2,
     go_api_version = 2,
     java_api_version = 2,
-    py_api_version = 2,
 )
 
 cc_library(
@@ -198,6 +186,18 @@ cc_library(
     hdrs = ["typed_queue.h"],
     deps = [
         ":queue_base",
+    ],
+)
+
+# Private support libraries ---------------------------------------------------
+
+cc_library(
+    name = "bounds_check",
+    hdrs = ["bounds_check.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tensorflow/core:framework",
+        "//third_party/eigen3",
     ],
 )
 
@@ -377,6 +377,7 @@ tf_kernel_libraries(
         "tensor_array_ops",
     ],
     deps = [
+        ":bounds_check",
         ":concat_lib",
         ":fifo_queue",
         ":initializable_lookup_table",
@@ -525,14 +526,12 @@ tf_kernel_libraries(
         "sample_distorted_bounding_box_op",
     ],
     deps = [
-        "//third_party/eigen3",
-        "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:framework",
+        "//tensorflow/core:image_ops_op_lib",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        # TODO(josh11b): Merge these ops libs
-        "//tensorflow/core:image_ops_op_lib",
-        "//tensorflow/core:attention_ops_op_lib",
+        "//tensorflow/core:protos_all_cc",
+        "//third_party/eigen3",
     ],
 )
 
@@ -612,10 +611,8 @@ tf_kernel_libraries(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        "//tensorflow/core:protos_all_cc",
-        # TODO(josh11b): Merge these ops libs?
-        "//tensorflow/core:summary_ops_op_lib",
         "//tensorflow/core:logging_ops_op_lib",
+        "//tensorflow/core:protos_all_cc",
     ],
 )
 
@@ -656,6 +653,7 @@ tf_kernel_libraries(
         "sparse_matmul_op",
     ],
     deps = [
+        ":bounds_check",
         ":fill_functor",
         ":transpose_functor",
         "//tensorflow/core:core_cpu",
@@ -703,6 +701,7 @@ tf_kernel_library(
     deps = [
         ":conv_2d",
         ":ops_util",
+        "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:nn_ops_op_lib",
@@ -714,6 +713,7 @@ tf_kernel_library(
     prefix = "depthwise_conv_op",
     deps = [
         ":ops_util",
+        "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:nn_ops_op_lib",
@@ -736,6 +736,7 @@ tf_kernel_libraries(
         "xent_op",
     ],
     deps = [
+        ":bounds_check",
         ":conv_2d",
         ":conv_ops",
         ":depthwise_conv_op",
@@ -982,6 +983,8 @@ filegroup(
     ],
 )
 
+# Core kernels we want on Android. Only a subset of kernels to keep
+# base library small.
 filegroup(
     name = "android_core_ops",
     srcs = [
@@ -1007,6 +1010,7 @@ filegroup(
         "example_parsing_ops.cc",
         "fill_functor.h",
         "gather_op.cc",
+        "gather_op.h",
         "identity_op.cc",
         "identity_op.h",
         "matmul_op.cc",
@@ -1037,11 +1041,28 @@ filegroup(
     ],
 )
 
+# Other kernels we may want on Android.
+#
+# The kernels can be consumed as a whole or in two groups for
+# supporting separate compilation. Note that the split into groups
+# is entirely for improving compilation time, and not for
+# organizational reasons; you should not depend on any
+# of those groups independently.
+filegroup(
+    name = "android_extended_ops",
+    srcs = [
+        ":android_extended_ops_group1",
+        ":android_extended_ops_group2",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "android_extended_ops_headers",
     srcs = [
         "argmax_op.h",
         "avgpooling_op.h",
+        "batch_norm_op.h",
         "control_flow_ops.h",
         "conv_2d.h",
         "maxpooling_op.h",
@@ -1065,7 +1086,9 @@ filegroup(
     srcs = [
         "argmax_op.cc",
         "avgpooling_op.cc",
+        "batch_norm_op.cc",
         "bcast_ops.cc",
+        "check_numerics_op.cc",
         "control_flow_ops.cc",
         "conv_2d.h",
         "conv_ops.cc",
@@ -1088,6 +1111,7 @@ filegroup(
         "cwise_op_sub.cc",
         "cwise_op_tanh.cc",
         "dynamic_partition_op.cc",
+        ":android_extended_ops_headers",
     ],
 )
 
@@ -1120,6 +1144,7 @@ filegroup(
         "transpose_op.cc",
         "where_op.cc",
         "xent_op.cc",
+        ":android_extended_ops_headers",
     ],
 )
 

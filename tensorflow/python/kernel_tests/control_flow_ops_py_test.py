@@ -898,7 +898,7 @@ class ControlFlowTest(tf.test.TestCase):
       r = control_flow_ops.While(c, b, [n, v], parallel_iterations=1)
 
       r = tf.gradients(r[1], x)[0]
-      self.assertEqual(r.get_shape().as_list(), [None])
+      self.assertEqual(r.get_shape(), tensor_shape.unknown_shape())
       self.assertAllClose([810.0, 2560.0], r.eval(feed_dict={x: [3.0, 4.0]}))
 
   def testWhileGrad_MultipleUses(self):
@@ -1391,11 +1391,14 @@ class ControlFlowTest(tf.test.TestCase):
       self.assertDeviceEqual(None, with_vnod_dep.device)
 
       # device set on tensor, default device on graph => default device on dep.
-      vdef = tf.Variable([0.0])
+      vdef = tf.Variable([0.0], name="vdef")
       with tf.device("/job:worker/gpu:1"):
         with_vdef_dep = control_flow_ops.with_dependencies([vdef.initializer],
                                                            vdef)
-        self.assertDeviceEqual("/job:worker/gpu:1", with_vdef_dep.device)
+        # The device is empty, but the colocation constraint is set.
+        self.assertDeviceEqual("", with_vdef_dep.device)
+        self.assertEqual([b"loc:@vdef"],
+                         with_vdef_dep.op.colocation_groups())
 
   def testGroup(self):
     with self.test_session() as sess:

@@ -165,6 +165,7 @@ cc_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:master_proto_cc",
         "//tensorflow/core:master_service_proto_cc",
+        "//tensorflow/core/distributed_runtime:call_options",
         "//tensorflow/core/distributed_runtime:master_interface",
     ],
     alwayslink = 1,
@@ -210,7 +211,7 @@ cc_library(
     srcs = [
         "grpc_server_lib.cc",
     ],
-    hdrs = ["grpc_server_lib.h"],
+    linkstatic = 1,  # Seems to be needed since alwayslink is broken in bazel
     deps = [
         "@grpc//:grpc++_unsecure",
         ":async_service_interface",
@@ -224,12 +225,15 @@ cc_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:framework_internal",
         "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
         "//tensorflow/core/distributed_runtime:graph_mgr",
         "//tensorflow/core/distributed_runtime:master_env",
         "//tensorflow/core/distributed_runtime:master_session",
         "//tensorflow/core/distributed_runtime:process_util",
+        "//tensorflow/core/distributed_runtime:server_lib",
         "//tensorflow/core/distributed_runtime:worker_env",
     ],
+    alwayslink = 1,
 )
 
 cc_binary(
@@ -244,6 +248,8 @@ cc_binary(
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework_internal",
         "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+        "//tensorflow/core/distributed_runtime:server_lib",
     ],
 )
 
@@ -273,6 +279,7 @@ cc_binary(
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:framework_internal",
         "//tensorflow/core:lib",
+        "//tensorflow/core/distributed_runtime:server_lib",
     ],
 )
 
@@ -311,6 +318,7 @@ cc_library(
         "//tensorflow/core:master_proto_cc",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:tensorflow",
+        "//tensorflow/core/distributed_runtime:call_options",
         "//tensorflow/core/distributed_runtime:master_interface",
     ],
     alwayslink = 1,
@@ -318,14 +326,16 @@ cc_library(
 
 tf_cc_tests(
     linkstatic = tf_kernel_tests_linkstatic(),
-    tags = tf_cuda_tests_tags(),
+    tags = tf_cuda_tests_tags() + ["exclusive"],
     tests = [
         "grpc_channel_test.cc",
+        "grpc_server_lib_test.cc",
         "grpc_session_test.cc",
         "rpc_rendezvous_mgr_test.cc",
     ],
     deps = [
         ":grpc_channel",
+        ":grpc_server_lib",
         ":grpc_session",
         ":grpc_testlib",
         ":rpc_rendezvous_mgr",
@@ -338,5 +348,6 @@ tf_cc_tests(
         "//tensorflow/core:test_main",
         "//tensorflow/core:testlib",
         "//tensorflow/core/distributed_runtime:process_util",
+        "//tensorflow/core/distributed_runtime:server_lib",
     ],
 )

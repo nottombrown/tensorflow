@@ -449,11 +449,6 @@ tf_gen_op_wrapper_py(
 )
 
 tf_gen_op_wrapper_py(
-    name = "attention_ops",
-    require_shape_functions = True,
-)
-
-tf_gen_op_wrapper_py(
     name = "candidate_sampling_ops",
     hidden = [
         "AllCandidateSampler",
@@ -578,7 +573,12 @@ tf_gen_op_wrapper_py(
     name = "logging_ops",
     hidden = [
         "Assert",
+        "HistogramAccumulatorSummary",
+        "HistogramSummary",
+        "ImageSummary",
+        "MergeSummary",
         "Print",
+        "ScalarSummary",
     ],
     require_shape_functions = True,
 )
@@ -629,6 +629,7 @@ tf_gen_op_wrapper_py(
         "TopK",
         "TopKV2",
         "BiasAdd",
+        "BiasAddV1",
         "Relu6",
         "AvgPool",
         "MaxPool",
@@ -697,18 +698,6 @@ tf_gen_op_wrapper_py(
 )
 
 tf_gen_op_wrapper_py(
-    name = "summary_ops",
-    hidden = [
-        "HistogramAccumulatorSummary",
-        "HistogramSummary",
-        "ImageSummary",
-        "MergeSummary",
-        "ScalarSummary",
-    ],
-    require_shape_functions = True,
-)
-
-tf_gen_op_wrapper_py(
     name = "user_ops",
     hidden = [
         "Fact",
@@ -727,7 +716,6 @@ py_library(
     srcs = [
         "ops/array_grad.py",
         "ops/array_ops.py",
-        "ops/attention_ops.py",
         "ops/candidate_sampling_ops.py",
         "ops/clip_ops.py",
         "ops/control_flow_grad.py",
@@ -736,7 +724,6 @@ py_library(
         "ops/data_flow_ops.py",
         "ops/embedding_ops.py",
         "ops/gen_array_ops.py",
-        "ops/gen_attention_ops.py",
         "ops/gen_control_flow_ops.py",
         "ops/gen_ctc_ops.py",
         "ops/gen_data_flow_ops.py",
@@ -749,7 +736,6 @@ py_library(
         "ops/gen_random_ops.py",
         "ops/gen_state_ops.py",
         "ops/gen_string_ops.py",
-        "ops/gen_summary_ops.py",
         "ops/gradients.py",
         "ops/histogram_ops.py",
         "ops/image_grad.py",
@@ -778,7 +764,6 @@ py_library(
         "ops/state_grad.py",
         "ops/state_ops.py",
         "ops/string_ops.py",
-        "ops/summary_ops.py",
         "ops/template.py",
         "ops/tensor_array_grad.py",
         "ops/tensor_array_ops.py",
@@ -804,7 +789,6 @@ py_library(
         ":script_ops",
         ":sparse_ops",
         ":string_ops",
-        ":summary_ops",
         ":user_ops",
     ],
 )
@@ -837,6 +821,7 @@ py_library(
     deps = [
         ":framework",
         ":ops",
+        ":server_lib",
         ":session",
         ":training_ops",
     ],
@@ -913,6 +898,7 @@ tf_py_wrap_cc(
     srcs = ["tensorflow.i"],
     swig_includes = [
         "client/events_writer.i",
+        "client/server_lib.i",
         "client/tf_session.i",
         "framework/python_op_gen.i",
         "lib/core/py_func.i",
@@ -931,6 +917,8 @@ tf_py_wrap_cc(
         ":py_record_writer_lib",
         ":python_op_gen",
         ":tf_session_helper",
+        "//tensorflow/core/distributed_runtime:server_lib",
+        "//tensorflow/core/distributed_runtime/rpc:grpc_server_lib",
         "//tensorflow/core/distributed_runtime/rpc:grpc_session",
         "//util/python:python_headers",
     ],
@@ -953,6 +941,28 @@ py_library(
         ":framework",
         ":ops",
         ":pywrap_tensorflow",
+    ],
+)
+
+py_library(
+    name = "server_lib",
+    srcs = ["client/server_lib.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":pywrap_tensorflow",
+    ],
+)
+
+py_test(
+    name = "server_lib_test",
+    srcs = ["client/server_lib_test.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":extra_py_tests_deps",
+        ":framework",
+        ":framework_test_lib",
+        ":server_lib",
+        ":session",
     ],
 )
 

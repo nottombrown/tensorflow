@@ -19,22 +19,22 @@ namespace tensorflow {
 // --------------------------------------------------------------------------
 
 REGISTER_OP("SdcaSolver")
-    .Attr("LossType: {'logistic_loss'}")
-    .Attr("NumSparseFeatures: int >= 0")
-    .Attr("NumDenseFeatures: int >= 0")
-    .Attr("L1: float >= 0")
-    .Attr("L2: float >= 0")
-    .Attr("DualityGapThreshold: float = 0.01")
-    .Attr("Container: string")
-    .Attr("SolverUUID: string")
-    .Input("sparse_features_indices: NumSparseFeatures * int64")
-    .Input("sparse_features_values: NumSparseFeatures * float")
-    .Input("dense_features: NumDenseFeatures * float")
+    .Attr("loss_type: {'logistic_loss', 'squared_loss', 'hinge_loss'}")
+    .Attr("num_sparse_features: int >= 0")
+    .Attr("num_dense_features: int >= 0")
+    .Attr("l1: float >= 0")
+    .Attr("l2: float >= 1")
+    .Attr("num_inner_iterations: int >= 2")
+    .Attr("container: string")
+    .Attr("solver_uuid: string")
+    .Input("sparse_features_indices: num_sparse_features * int64")
+    .Input("sparse_features_values: num_sparse_features * float")
+    .Input("dense_features: num_dense_features * float")
     .Input("example_weights: float")
     .Input("example_labels: float")
-    .Input("sparse_weights: Ref(NumSparseFeatures * float)")
-    .Input("dense_weights: Ref(NumDenseFeatures * float)")
-    .Input("primal_loss: Ref(double)")
+    .Input("example_ids: string")
+    .Input("sparse_weights: Ref(num_sparse_features * float)")
+    .Input("dense_weights: Ref(num_dense_features * float)")
     .Doc(R"doc(
 Stochastic Dual Coordinate Ascent (SDCA) optimizer for linear models with
 L1 + L2 regularization. As global optimization objective is strongly-convex, the
@@ -45,28 +45,82 @@ is learning rate free and enjoys linear convergence rate.
 Proximal Stochastic Dual Coordinate Ascent, Shalev-Shwartz, Shai; Zhang, Tong.
 2012arXiv1211.2717S: http://arxiv.org/pdf/1211.2717v1.pdf
 
-LossType: Type of the primal loss. Only logistic_loss is supported.
-NumSparseFeatures: Number of sparse feature groups to train on.
-NumDenseFeatures: Number of dense feature groups to train on.
-L1: Per example symmetric l1 regularization strength.
-L2: Per example symmetric l2 regularization strength.
-DualityGapThreshold: Gap threshold at which we should stop training.
-Container: Name of the Container that stores data across invocations of this
+  Loss objective = \sum f_{i}(wx_{i}) + l2 * |w|^2 + l1 * |w|
+
+loss_type: Type of the primal loss. Currently SdcaSolver supports logistic,
+  squared and hinge losses.
+num_sparse_features: Number of sparse feature groups to train on.
+num_dense_features: Number of dense feature groups to train on.
+l1: Symmetric l1 regularization strength.
+l2: Symmetric l2 regularization strength.
+num_inner_iterations: Number of iterations per mini-batch.
+container: Name of the Container that stores data across invocations of this
   Kernel. Together with SolverUUID form an isolation unit for this solver.
-SolverUUID: Universally Unique Identifier for this solver.
+solver_uuid: Universally Unique Identifier for this solver.
 sparse_features_indices: a list of matrices with two columns that contain
   example_indices, and feature_indices.
 sparse_features_values: a list of vectors which contains feature value
   associated with each feature group.
 dense_features: a list of vectors which contains the dense feature values.
-example_weights: a vector which contains the example weight associated with
-  each example.
-example_labels: a vector which contains the example label/target asscociated
-  with each example.
+example_weights: a vector which contains the weight associated with each
+  example.
+example_labels: a vector which contains the label/target associated with each
+  example.
+example_ids: a vector which contains the unique identifier associated with each
+  example.
 sparse_weights: a list of vectors where each value is the weight associated with
   a feature index.
 dense_weights: a list of vectors where the value is the weight associated with
   a dense feature group.
+)doc");
+
+REGISTER_OP("SdcaShrinkL1")
+    .Attr("num_sparse_features: int >= 0")
+    .Attr("num_dense_features: int >= 0")
+    .Attr("l1: float >= 0")
+    .Attr("l2: float >= 1")
+    .Input("sparse_weights: Ref(num_sparse_features * float)")
+    .Input("dense_weights: Ref(num_dense_features * float)")
+    .Doc(R"doc(
+Applies L1 regularization shrink step on the parameters.
+
+num_sparse_features: Number of sparse feature groups to train on.
+num_dense_features: Number of dense feature groups to train on.
+l1: Symmetric l1 regularization strength.
+l2: Symmetric l2 regularization strength.
+sparse_weights: a list of vectors where each value is the weight associated with
+  a feature index.
+dense_weights: a list of vectors where the value is the weight associated with
+  a dense feature group.
+)doc");
+
+// TODO(katsiapis): We should expand this scope of this op to compute other
+// statistics about the data.
+REGISTER_OP("ComputeDualityGap")
+    .Attr("num_sparse_features: int >= 0")
+    .Attr("num_dense_features: int >= 0")
+    .Attr("l1: float >= 0")
+    .Attr("l2: float >= 1")
+    .Attr("container: string")
+    .Attr("solver_uuid: string")
+    .Input("sparse_weights: Ref(num_sparse_features * float)")
+    .Input("dense_weights: Ref(num_dense_features * float)")
+    .Output("duality_gap: float")
+    .Doc(R"doc(
+Computes duality gap over all examples seen by the optimizer.
+
+num_sparse_features: Number of sparse feature groups to train on.
+num_dense_features: Number of dense feature groups to train on.
+l1: Symmetric l1 regularization strength.
+l2: Symmetric l2 regularization strength.
+container: Name of the Container that stores data across invocations of this
+  Kernel. Together with SolverUUID form an isolation unit for this solver.
+solver_uuid: Universally Unique Identifier for this solver.
+sparse_weights: a list of vectors where each value is the weight associated with
+  a feature index.
+dense_weights: a list of vectors where the value is the weight associated with
+  a dense feature group.
+duality_gap: duality gap over all examples seen by the optimizer.
 )doc");
 
 }  // namespace tensorflow

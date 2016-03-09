@@ -464,7 +464,7 @@ We recommend using [homebrew](http://brew.sh) to install the bazel and SWIG
 dependencies, and installing python dependencies using easy_install or pip.
 
 Of course you can also install Swig from source without using homebrew. In that
-case, be sure to install its dependency [PCRE](from www.pcre.org) and not PCRE2.
+case, be sure to install its dependency [PCRE](http://www.pcre.org) and not PCRE2.
 
 #### Dependencies
 
@@ -484,8 +484,8 @@ $ sudo easy_install -U numpy
 $ sudo easy_install wheel
 ```
 
-We also recommend the [ipython](https://ipython.org) enhanced python shell, so
-best install that too:
+We also recommend the [ipython](https://ipython.org) enhanced python shell,
+which you can install as follows:
 
 ```bash
 $ sudo easy_install ipython
